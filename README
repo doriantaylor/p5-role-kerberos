@@ -1,0 +1,73 @@
+NAME
+    Role::Kerberos - A role for managing Kerberos 5 credentials
+
+VERSION
+    Version 0.01_01
+
+SYNOPSIS
+      use Moo;
+      with 'Role::Kerberos';
+
+      # go nuts
+
+DESCRIPTION
+    Authen::Krb5 is kind of unwieldy. Authen::Krb5::Simple is too simple (no
+    keytabs). Authen::Krb5::Effortless requires too much effort (can't
+    specify keytabs/ccaches outside of environment variables) and
+    Authen::Krb5::Easy hasn't been touched in 13 years.
+
+    The purpose of this module is to enable you to strap Kerberos onto an
+    existing (Moo[se]) object.
+
+METHODS
+  new
+   Parameters/Accessors
+    realm
+        The default realm.
+
+    principal
+        The default principal.
+
+    keytab
+        A keytab, if other than $ENV{KRB5_KTNAME}.
+
+    ccache
+        The locator (e.g. file path) of a credential cache.
+
+  kinit %PARAMS
+    Log in to Kerberos. Parameters are optional
+
+    principal
+    realm
+    password
+    keytab
+
+  klist %PARAMS
+  kdestroy
+AUTHOR
+    Dorian Taylor, "<dorian at cpan.org>"
+
+SEE ALSO
+    Authen::Krb5
+    Moo::Role
+
+BUGS
+    Please report any bugs or feature requests to "bug-role-kerberos at
+    rt.cpan.org", or through the web interface at
+    <http://rt.cpan.org/NoAuth/ReportBug.html?Queue=Role-Kerberos>. I will
+    be notified, and then you'll automatically be notified of progress on
+    your bug as I make changes.
+
+LICENSE AND COPYRIGHT
+    Copyright 2015 Dorian Taylor.
+
+    Licensed under the Apache License, Version 2.0 (the "License"); you may
+    not use this file except in compliance with the License. You may obtain
+    a copy of the License at <http://www.apache.org/licenses/LICENSE-2.0>.
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
