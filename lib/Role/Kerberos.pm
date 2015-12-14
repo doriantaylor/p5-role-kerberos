@@ -5,12 +5,12 @@ use strict;
 use warnings FATAL => 'all';
 
 use Moo::Role;
-use namespace::clean;
+#use namespace::clean;
 
 use Authen::Krb5 ();
 use Scalar::Util ();
 use Carp         ();
-use Try::Tiny    ();
+#use Try::Tiny    ();
 
 # Authen::Krb5 contains a global, presumably non-threadsafe pointer to
 # this execution context. This is the best way I can muster dealing
@@ -39,18 +39,35 @@ Role::Kerberos - A role for managing Kerberos 5 credentials
 
 =head1 VERSION
 
-Version 0.01_01
+Version 0.01_03
 
 =cut
 
-our $VERSION = '0.01_01';
+our $VERSION = '0.01_03';
 
 =head1 SYNOPSIS
+
+  package My::Kerbject;
 
   use Moo;
   with 'Role::Kerberos';
 
-  # go nuts
+  has other_stuff => (
+      # ...
+  );
+
+  # go nuts...
+
+  # ...elsewhere:
+
+  package Somewhere::Else;
+
+  my $krb = My::Kerbject->new(
+      principal   => 'robot@ELITE.REALM',
+      keytab      => '/etc/robot/creds.keytab',
+      ccache      => '/var/lib/robot/krb5cc',
+      other_stuff => 'derp',
+  );
 
 =head1 DESCRIPTION
 
@@ -59,20 +76,27 @@ simple (no keytabs). L<Authen::Krb5::Effortless> requires too much
 effort (can't specify keytabs/ccaches outside of environment
 variables) and L<Authen::Krb5::Easy> hasn't been touched in 13 years.
 
-The purpose of this module is to enable you to strap Kerberos onto an
-existing (L<Moo>[L<se|Moose>]) object, as any role is apt to do.
+The purpose of this module is to enable you to strap onto an existing
+L<Moo>(L<se|Moose>) object the functionality necessary to acquire and
+maintain a Kerberos TGT. My own impetus for writing this module
+involves making connections authenticated via L<Authen::SASL> and
+GSSAPI where the keys come from a keytab in a non-default location and
+the consistency of C<%ENV> is not reliable (that is, in a Web app).
 
 =head1 METHODS
 
-=head2 new
+=head2 new %PARAMS
 
-=head3 Parameters/Accessors
+As with all roles, these parameters get integrated into your class's
+constructor, and also serve as accessor methods. Every one is
+read-only, and every one is optional except L</principal>.
 
 =over 4
 
 =item realm
 
-The default realm.
+The default realm. Taken from the default principal, or otherwise the
+system default realm if not defined.
 
 =cut
 
@@ -110,7 +134,10 @@ has realm => (
 
 =item principal
 
-The default principal. Can (should) also contain a realm.
+The default principal. Can (should) also contain a realm. If a realm
+is missing from the principal, it will be added from
+L</realm>. Coerced from a string into a
+L<Authen::Krb5/Authen::Krb5::Principal> object. B<Required>.
 
 =cut
 
@@ -136,7 +163,9 @@ has principal => (
 
 =item keytab
 
-A keytab, if other than C<$ENV{KRB5_KTNAME}>.
+A keytab, if other than C<$ENV{KRB5_KTNAME}>. Will default to that or
+the system default (e.g. C</etc/krb5.keytab>). Coerced from a file
+path into an L<Authen::Krb5/Authen::Krb5::Keytab> object.
 
 =cut
 
@@ -161,7 +190,9 @@ has keytab => (
 
 =item ccache
 
-The locator (e.g. file path) of a credential cache.
+The locator (e.g. file path) of a credential cache, if different from
+C<$ENV{KRB5CCNAME}> or the system default. Coerced into an
+L<Authen::Krb5/Authen::Krb5::Ccache> object.
 
 =cut
 
@@ -187,19 +218,33 @@ has ccache => (
 
 =head2 kinit %PARAMS
 
-Log in to Kerberos. Parameters are optional
+Log in to Kerberos. Parameters are optional.
 
 =over 4
 
 =item principal
 
+The principal, if different from that in the constructor.
+
 =item realm
+
+The realm, if different from that in the constructor. Ignored if the
+principal contains a realm.
 
 =item password
 
+The Kerberos password, if logging in with a password. (See
+L<Term::ReadPassword> for a handy way of ingesting a password from the
+command line.)
+
 =item keytab
 
+A keytab, if different from that in the constructor or
+C<$ENV{KRB5_KTNAME}>. Will be coerced from a file name.
+
 =item service
+
+A service principal, if different from C<krbtgt/REALM@REALM>.
 
 =back
 
@@ -243,20 +288,21 @@ sub klist {
     my $self = shift;
 
     my $cc = $self->ccache;
-    my $p  = $self->principal;
+    #my $p  = $self->principal;
     my @out;
     if (my $cursor = $cc->start_seq_get) {
-        while (my $obj = $cc->next_cred($cursor)) {
+        while (my $cred = $cc->next_cred($cursor)) {
             push @out, {
-                principal => $obj->client,
-                service   => $obj->server,
-                auth      => $obj->authtime,
-                start     => $obj->starttime,
-                end       => $obj->endtime,
-                renew     => $obj->renew_till,
-                ticket    => $obj->ticket,
-                # this segfaults
-                # keyblock  => $obj->keyblock,
+                principal => $cred->client,
+                service   => $cred->server,
+                auth      => $cred->authtime,
+                start     => $cred->starttime,
+                end       => $cred->endtime,
+                renew     => $cred->renew_till,
+                ticket    => $cred->ticket,
+                # this segfaults when Authen::Krb5::Keyblock->DESTROY
+                # is called with the key content memory out of bounds,
+                # keyblock  => $cred->keyblock,
             };
         }
         $cc->end_seq_get($cursor);
@@ -265,6 +311,29 @@ sub klist {
     return unless @out;
     wantarray ? @out : \@out;
 }
+
+=head2 kexpired
+
+Returns true if any tickets in the cache are expired.
+
+=cut
+
+sub kexpired {
+    my $self = shift;
+    my $now  = time;
+
+    return scalar grep { $_->{end} < $now } $self->tickets;
+}
+
+
+# wishful thinking: Authen::Krb5 does not at the moment expose either
+# ticket flags or krb5_get_renewed_creds.
+
+# =head2 krenew
+
+# Checks the TGT and reauthenticates  if expired. This is I<not>
+
+# =cut
 
 =head2 kdestroy
 
@@ -282,10 +351,7 @@ sub kdestroy {
 #     $_[0]->kdestroy;
 # }
 
-# sub DEMOLISH {
-#     warn 'lol';
-# }
-
+# XXX more sensible?
 sub DEMOLISH {
     my $self = shift;
     for my $entry ($self->klist) {

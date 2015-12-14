@@ -31,9 +31,16 @@ build_requires (
    'Test::More' => 0,
 );
 
+test_requires (
+   'Term::ReadPassword' => 0,
+);
+
 requires (
-    'Moo' => '1.006',
-    'Authen::Krb5' => '1.9',
+    'Moo'              => '1.006',
+# we don't actually import any symbols or eval anything
+#    'namespace::clean' => '0.24',
+#    'Try::Tiny'        => '0.22',
+    'Authen::Krb5'     => '1.9',
 );
 
 install_as_cpan;

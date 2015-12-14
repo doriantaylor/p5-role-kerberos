@@ -19,7 +19,7 @@ plan tests => 9;
 
 my $cc = File::Temp::tmpnam();
 
-diag("Storing CC in $cc");
+diag("Storing credential cache in $cc");
 
 END {
     unlink $cc;
