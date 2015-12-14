@@ -45,6 +45,8 @@ METHODS
 
   klist %PARAMS
   kdestroy
+    Destroy the credentials cache (if there is something to destroy).
+
 AUTHOR
     Dorian Taylor, "<dorian at cpan.org>"
 

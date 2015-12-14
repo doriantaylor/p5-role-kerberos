@@ -21,6 +21,10 @@ my $cc = File::Temp::tmpnam();
 
 diag("Storing CC in $cc");
 
+END {
+    unlink $cc;
+}
+
 my $obj = new_ok('Test::Role::Kerberos' => [
     principal => 'yodawg@BOGUS.REALM',
     ccache    => $cc,
