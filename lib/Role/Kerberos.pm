@@ -5,7 +5,9 @@ use strict;
 use warnings FATAL => 'all';
 
 use Moo::Role;
-use Authen::Krb5;
+use namespace::clean;
+
+use Authen::Krb5 ();
 use Scalar::Util ();
 use Carp         ();
 use Try::Tiny    ();
@@ -58,7 +60,7 @@ effort (can't specify keytabs/ccaches outside of environment
 variables) and L<Authen::Krb5::Easy> hasn't been touched in 13 years.
 
 The purpose of this module is to enable you to strap Kerberos onto an
-existing (L<Moo>[L<se|Moose>]) object.
+existing (L<Moo>[L<se|Moose>]) object, as any role is apt to do.
 
 =head1 METHODS
 
@@ -74,16 +76,62 @@ The default realm.
 
 =cut
 
+around BUILDARGS => sub {
+    my $orig  = shift;
+    my $class = shift;
+    my %p;
+    if (@_ and ref $_[0] eq 'HASH') {
+        %p = %{$_[0]};
+    }
+    else {
+        %p = @_;
+    }
+
+    Carp::croak('Must supply at least a principal')
+          unless defined $p{principal} and $p{principal} ne '';
+
+    if ($p{principal} =~ /@/) {
+        $p{principal} = _coerce_principal($p{principal});
+        $p{realm} ||= $p{principal}->realm;
+    }
+    else {
+        $p{realm} ||= Authen::Krb5::get_default_realm();
+        $p{principal} = sprintf '%s@%s', @p{qw(principal realm)};
+    }
+
+    $orig->($class, %p);
+};
+
 has realm => (
+    is      => 'rw',
+    lazy    => 1,
+    default => sub { Authen::Krb5::get_default_realm(); },
 );
 
 =item principal
 
-The default principal.
+The default principal. Can (should) also contain a realm.
 
 =cut
 
+sub _coerce_principal {
+    my $n = shift;
+    return $n if _is_really($n, 'Authen::Krb5::Principal');
+
+    my $r = shift || Authen::Krb5::get_default_realm();
+
+    $n = sprintf '%s@%s', $n, $r unless $n =~ /@/;
+
+    Authen::Krb5::parse_name($n)
+          or _k5err("Could not resolve principal $n");
+}
+
 has principal => (
+    is       => 'ro',
+    isa      => sub { _is_really(shift, 'Authen::Krb5::Principal') },
+    required => 1,
+    trigger  => sub { $_[0]->realm($_[0]->principal->realm) },
+    coerce   => \&_coerce_principal,
 );
 
 =item keytab
@@ -92,7 +140,23 @@ A keytab, if other than C<$ENV{KRB5_KTNAME}>.
 
 =cut
 
+sub _coerce_kt {
+    my $val = shift;
+    return $val if _is_really($val, 'Authen::Krb5::Keytab');
+
+    $val = "FILE:$val" unless $val =~ /^[^:]+:/;
+
+    Authen::Krb5::kt_resolve($val) or _k5err("Could not load keytab $val");
+}
+
 has keytab => (
+    is      => 'ro',
+    isa     => sub { _is_really(shift, 'Authen::Krb5::Keytab') },
+    lazy    => 1,
+    coerce  => \&_coerce_kt,
+    default => sub {
+        Authen::Krb5::kt_default() or _k5err("Could not load default keytab");
+    },
 );
 
 =item ccache
@@ -102,6 +166,21 @@ The locator (e.g. file path) of a credential cache.
 =cut
 
 has ccache => (
+    is      => 'ro',
+    lazy    => 1,
+    coerce  => sub {
+        my $val = shift;
+        return $val if _is_really($val, 'Authen::Krb5::Ccache');
+
+        $val = "FILE:$val" unless $val =~ /^FILE:/i;
+
+        my $kt = Authen::Krb5::cc_resolve($val)
+            or _k5err("Could not load credential cache $val");
+    },
+    default => sub {
+        Authen::Krb5::cc_default()
+              or _k5err("Could not resolve default credentials cache");
+    },
 );
 
 =back
@@ -120,11 +199,40 @@ Log in to Kerberos. Parameters are optional
 
 =item keytab
 
+=item service
+
 =back
 
 =cut
 
 sub kinit {
+    my $self = shift;
+    my %p = @_;
+
+    $p{realm} ||= $self->realm;
+    $p{principal} = $p{principal}
+        ? _coerce_principal(@p{qw(principal realm)}) : $self->principal;
+
+    my $tgt;
+    if (defined $p{password}) {
+        my @a = @p{qw(principal password)};
+        push @a, $p{service} if defined $p{service};
+
+        $tgt = Authen::Krb5::get_init_creds_password(@a)
+            or _k5err('Failed to get TGT');
+    }
+    else {
+        $p{keytab} = $p{keytab} ? _coerce_kt($p{keytab}) : $self->keytab;
+        my @a = @p{qw(principal keytab)};
+        push @a, $p{service} if defined $p{service};
+
+        $tgt = Authen::Krb5::get_init_creds_keytab(@a)
+            or _k5err('Failed to get TGT');
+    }
+
+    my $cc = $self->ccache;
+    $cc->initialize($p{principal});
+    $cc->store_cred($tgt);
 }
 
 =head2 klist %PARAMS
@@ -132,13 +240,57 @@ sub kinit {
 =cut
 
 sub klist {
+    my $self = shift;
+
+    my $cc = $self->ccache;
+    my $p  = $self->principal;
+    my @out;
+    if (my $cursor = $cc->start_seq_get) {
+        while (my $obj = $cc->next_cred($cursor)) {
+            push @out, {
+                principal => $obj->client,
+                service   => $obj->server,
+                auth      => $obj->authtime,
+                start     => $obj->starttime,
+                end       => $obj->endtime,
+                renew     => $obj->renew_till,
+                ticket    => $obj->ticket,
+                # this segfaults
+                # keyblock  => $obj->keyblock,
+            };
+        }
+        $cc->end_seq_get($cursor);
+    }
+
+    return unless @out;
+    wantarray ? @out : \@out;
 }
 
 =head2 kdestroy
 
+Destroy the credentials cache (if there is something to destroy).
+
 =cut
 
 sub kdestroy {
+    my $self = shift;
+    $self->ccache->destroy if $self->klist;
+}
+
+# XXX do we actually want this to happen?
+# sub DEMOLISH {
+#     $_[0]->kdestroy;
+# }
+
+# sub DEMOLISH {
+#     warn 'lol';
+# }
+
+sub DEMOLISH {
+    my $self = shift;
+    for my $entry ($self->klist) {
+        delete $entry->{keyblock};
+    }
 }
 
 =head1 AUTHOR

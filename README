@@ -17,7 +17,7 @@ DESCRIPTION
     Authen::Krb5::Easy hasn't been touched in 13 years.
 
     The purpose of this module is to enable you to strap Kerberos onto an
-    existing (Moo[se]) object.
+    existing (Moo[se]) object, as any role is apt to do.
 
 METHODS
   new
@@ -26,7 +26,7 @@ METHODS
         The default realm.
 
     principal
-        The default principal.
+        The default principal. Can (should) also contain a realm.
 
     keytab
         A keytab, if other than $ENV{KRB5_KTNAME}.
@@ -41,6 +41,7 @@ METHODS
     realm
     password
     keytab
+    service
 
   klist %PARAMS
   kdestroy
