@@ -2,7 +2,7 @@ NAME
     Role::Kerberos - A role for managing Kerberos 5 credentials
 
 VERSION
-    Version 0.01_03
+    Version 0.01_04
 
 SYNOPSIS
       package My::Kerbject;
@@ -60,6 +60,10 @@ METHODS
         A keytab, if other than $ENV{KRB5_KTNAME}. Will default to that or
         the system default (e.g. "/etc/krb5.keytab"). Coerced from a file
         path into an "Authen::Krb5::Keytab" in Authen::Krb5 object.
+
+    password
+        The password for the default principal. Don't use this. Use a
+        keytab.
 
     ccache
         The locator (e.g. file path) of a credential cache, if different

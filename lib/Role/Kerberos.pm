@@ -39,11 +39,11 @@ Role::Kerberos - A role for managing Kerberos 5 credentials
 
 =head1 VERSION
 
-Version 0.01_03
+Version 0.01_04
 
 =cut
 
-our $VERSION = '0.01_03';
+our $VERSION = '0.01_04';
 
 =head1 SYNOPSIS
 
@@ -123,6 +123,14 @@ around BUILDARGS => sub {
         $p{principal} = sprintf '%s@%s', @p{qw(principal realm)};
     }
 
+    if (defined $p{keytab}) {
+        $p{keytab} = _coerce_kt($p{keytab});
+    }
+
+    if (defined $p{ccache}) {
+        $p{ccache} = _coerce_cc($p{ccache});
+    }
+
     $orig->($class, %p);
 };
 
@@ -171,6 +179,7 @@ path into an L<Authen::Krb5/Authen::Krb5::Keytab> object.
 
 sub _coerce_kt {
     my $val = shift;
+    warn 'YO DAWG COERCING KEYTAB';
     return $val if _is_really($val, 'Authen::Krb5::Keytab');
 
     $val = "FILE:$val" unless $val =~ /^[^:]+:/;
@@ -188,6 +197,16 @@ has keytab => (
     },
 );
 
+=item password
+
+The password for the default principal. Don't use this. Use a keytab.
+
+=cut
+
+has password => (
+    is      => 'ro',
+);
+
 =item ccache
 
 The locator (e.g. file path) of a credential cache, if different from
@@ -196,18 +215,21 @@ L<Authen::Krb5/Authen::Krb5::Ccache> object.
 
 =cut
 
+sub _coerce_cc {
+    my $val = shift;
+    return $val if _is_really($val, 'Authen::Krb5::Ccache');
+
+    $val = "FILE:$val" unless $val =~ /^FILE:/i;
+
+    Authen::Krb5::cc_resolve($val)
+        or _k5err("Could not load credential cache $val");
+}
+
 has ccache => (
     is      => 'ro',
+    isa     => sub { _is_really(shift, 'Authen::Krb5::Ccache') },
     lazy    => 1,
-    coerce  => sub {
-        my $val = shift;
-        return $val if _is_really($val, 'Authen::Krb5::Ccache');
-
-        $val = "FILE:$val" unless $val =~ /^FILE:/i;
-
-        my $kt = Authen::Krb5::cc_resolve($val)
-            or _k5err("Could not load credential cache $val");
-    },
+    coerce  => \&_coerce_cc,
     default => sub {
         Authen::Krb5::cc_default()
               or _k5err("Could not resolve default credentials cache");
@@ -259,8 +281,10 @@ sub kinit {
         ? _coerce_principal(@p{qw(principal realm)}) : $self->principal;
 
     my $tgt;
-    if (defined $p{password}) {
-        my @a = @p{qw(principal password)};
+    if (defined $p{password} or defined $self->password) {
+        warn 'using a password you schlub';
+        my $password = defined $p{password} ? $p{password} : $self->password;
+        my @a = ($p{principal}, $password);
         push @a, $p{service} if defined $p{service};
 
         $tgt = Authen::Krb5::get_init_creds_password(@a)
@@ -322,7 +346,10 @@ sub kexpired {
     my $self = shift;
     my $now  = time;
 
-    return scalar grep { $_->{end} < $now } $self->tickets;
+    my @tickets = $self->klist;
+    return 1 unless @tickets;
+
+    return scalar grep { $_->{end} < $now } @tickets;
 }
 
 
