@@ -2,7 +2,7 @@ NAME
     Role::Kerberos - A role for managing Kerberos 5 credentials
 
 VERSION
-    Version 0.01_04
+    Version 0.01_05
 
 SYNOPSIS
       package My::Kerbject;

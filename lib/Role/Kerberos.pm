@@ -39,11 +39,11 @@ Role::Kerberos - A role for managing Kerberos 5 credentials
 
 =head1 VERSION
 
-Version 0.01_04
+Version 0.01_05
 
 =cut
 
-our $VERSION = '0.01_04';
+our $VERSION = '0.01_05';
 
 =head1 SYNOPSIS
 
@@ -179,7 +179,7 @@ path into an L<Authen::Krb5/Authen::Krb5::Keytab> object.
 
 sub _coerce_kt {
     my $val = shift;
-    warn 'YO DAWG COERCING KEYTAB';
+    #warn 'YO DAWG COERCING KEYTAB';
     return $val if _is_really($val, 'Authen::Krb5::Keytab');
 
     $val = "FILE:$val" unless $val =~ /^[^:]+:/;
