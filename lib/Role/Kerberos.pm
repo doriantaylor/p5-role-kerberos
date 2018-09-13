@@ -1,6 +1,6 @@
 package Role::Kerberos;
 
-use 5.010;
+use 5.014;
 use strict;
 use warnings FATAL => 'all';
 
@@ -39,11 +39,11 @@ Role::Kerberos - A role for managing Kerberos 5 credentials
 
 =head1 VERSION
 
-Version 0.01_05
+Version 0.02
 
 =cut
 
-our $VERSION = '0.01_05';
+our $VERSION = '0.02';
 
 =head1 SYNOPSIS
 

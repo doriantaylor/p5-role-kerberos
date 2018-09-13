@@ -1,5 +1,8 @@
 Revision history for Role-Kerberos
 
+0.02    Thu Sep 13 14:58:05 PDT 2018
+        rereleased because apparently we're not indexing dev releases anymore
+
 0.01_03 Mon Dec 14 15:28:08 PST 2015
         Fleshed out docs a little better; added 'kexpired'.
 
